@@ -130,14 +130,14 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
 }
 
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
-                             RGBMatrix *matrix) {
+                             RGBMatrix *matrix, bool play_once) {
   signal(SIGTERM, InterruptHandler);
   signal(SIGINT, InterruptHandler);
   fprintf(stderr, "Display.\n");
   for (unsigned int i = 0; !interrupt_received; ++i) {
     const PreprocessedFrame *frame = frames[i % frames.size()];
     matrix->SwapOnVSync(frame->canvas());
-    if (frames.size() == 1) {
+    if (frames.size() == 1 || (play_once == true && i == frames.size() - 1)) {
       sleep(86400);  // Only one image. Nothing to do.
     } else {
       usleep(frame->delay_micros());
@@ -148,15 +148,16 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
 static int usage(const char *progname) {
   fprintf(stderr, "usage: %s [options] <image>\n", progname);
   fprintf(stderr, "Options:\n"
-          "\t-r <rows>     : Panel rows. '16' for 16x32 (1:8 multiplexing),\n"
+          "\t-r <rows>      : Panel rows. '16' for 16x32 (1:8 multiplexing),\n"
 	  "\t                '32' for 32x32 (1:16), '8' for 1:4 multiplexing; "
           "Default: 32\n"
-          "\t-P <parallel> : For Plus-models or RPi2: parallel chains. 1..3. "
+          "\t-P <parallel>  : For Plus-models or RPi2: parallel chains. 1..3. "
           "Default: 1\n"
-          "\t-c <chained>  : Daisy-chained boards. Default: 1.\n"
-          "\t-L            : Large 64x64 display made from four 32x32 in a chain\n"
-          "\t-d            : Run as daemon.\n"
-          "\t-b <brightnes>: Sets brightness percent. Default: 100.\n");
+          "\t-c <chained>   : Daisy-chained boards. Default: 1.\n"
+          "\t-L             : Large 64x64 display made from four 32x32 in a chain\n"
+          "\t-d             : Run as daemon.\n"
+          "\t-o <play-once> : Play gif only once, ends on last frame.\n"
+          "\t-b <brightnes> : Sets brightness percent. Default: 100.\n");
   return 1;
 }
 
@@ -170,9 +171,10 @@ int main(int argc, char *argv[]) {
   int brightness = 100;
   bool large_display = false;  // example for using Transformers
   bool as_daemon = false;
+  bool play_once = false;
 
   int opt;
-  while ((opt = getopt(argc, argv, "r:P:c:p:b:dL")) != -1) {
+  while ((opt = getopt(argc, argv, "r:P:c:p:b:dL:o")) != -1) {
     switch (opt) {
     case 'r': rows = atoi(optarg); break;
     case 'P': parallel = atoi(optarg); break;
@@ -180,6 +182,7 @@ int main(int argc, char *argv[]) {
     case 'p': pwm_bits = atoi(optarg); break;
     case 'd': as_daemon = true; break;
     case 'b': brightness = atoi(optarg); break;
+    case 'o': play_once = true; break;
     case 'L':
       chain = 4;
       rows = 32;
@@ -261,7 +264,7 @@ int main(int argc, char *argv[]) {
   std::vector<PreprocessedFrame*> frames;
   PrepareBuffers(sequence_pics, matrix, &frames);
 
-  DisplayAnimation(frames, matrix);
+  DisplayAnimation(frames, matrix, play_once);
 
   fprintf(stderr, "Caught signal. Exiting.\n");
 
