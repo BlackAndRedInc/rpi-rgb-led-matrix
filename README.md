@@ -603,3 +603,15 @@ things, like this installation by Dirk in Scharbeutz, Germany:
 [ada]: http://www.adafruit.com/product/1484
 [git-submodules]: http://git-scm.com/book/en/Git-Tools-Submodules
 [rt-paper]: https://www.osadl.org/fileadmin/dam/rtlws/12/Brown.pdf
+
+
+Node-Gyp Installation & building
+----------
+Install `node-gyp` globally.
+```
+$ npm install node-gyp
+```
+Once Installed run the `node-gyp` compiler in the root of the project.
+```
+$ node-gyp configure build
+```
