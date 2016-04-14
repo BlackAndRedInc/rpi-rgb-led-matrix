@@ -27,11 +27,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <node.h>
 
 #include <vector>
 #include <Magick++.h>
 #include <magick/image.h>
 
+using v8::FunctionCallbackInfo;
+using v8::Isolate;
+using v8::Local;
+using v8::Object;
+using v8::String;
+using v8::Value;
 using rgb_matrix::GPIO;
 using rgb_matrix::Canvas;
 using rgb_matrix::FrameCanvas;
@@ -77,10 +84,10 @@ public:
     return delay_micros_;
   }
 
-private:
-  FrameCanvas *const canvas_;
-  int delay_micros_;
-};
+  private:
+    FrameCanvas *const canvas_;
+    int delay_micros_;
+  };
 }  // end anonymous namespace
 
 // Load still image or animation.
@@ -145,132 +152,47 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
   }
 }
 
-static int usage(const char *progname) {
-  fprintf(stderr, "usage: %s [options] <image>\n", progname);
-  fprintf(stderr, "Options:\n"
-          "\t-r <rows>      : Panel rows. '16' for 16x32 (1:8 multiplexing),\n"
-	  "\t                '32' for 32x32 (1:16), '8' for 1:4 multiplexing; "
-          "Default: 32\n"
-          "\t-P <parallel>  : For Plus-models or RPi2: parallel chains. 1..3. "
-          "Default: 1\n"
-          "\t-c <chained>   : Daisy-chained boards. Default: 1.\n"
-          "\t-L             : Large 64x64 display made from four 32x32 in a chain\n"
-          "\t-d             : Run as daemon.\n"
-          "\t-o <play-once> : Play gif only once, ends on last frame.\n"
-          "\t-b <brightnes> : Sets brightness percent. Default: 100.\n");
-  return 1;
-}
-
-int main(int argc, char *argv[]) {
-  Magick::InitializeMagick(*argv);
+void Main(const FunctionCallbackInfo<Value>& args) {
+  Magick::InitializeMagick("");
 
   int rows = 32;
-  int chain = 1;
+  int chain = 4;
   int parallel = 1;
-  int pwm_bits = -1;
-  int brightness = 100;
-  bool large_display = false;  // example for using Transformers
-  bool as_daemon = false;
+  int brightness = 90;
   bool play_once = false;
 
-  int opt;
-  while ((opt = getopt(argc, argv, "r:P:c:p:b:dL:o")) != -1) {
-    switch (opt) {
-    case 'r': rows = atoi(optarg); break;
-    case 'P': parallel = atoi(optarg); break;
-    case 'c': chain = atoi(optarg); break;
-    case 'p': pwm_bits = atoi(optarg); break;
-    case 'd': as_daemon = true; break;
-    case 'b': brightness = atoi(optarg); break;
-    case 'o': play_once = true; break;
-    case 'L':
-      chain = 4;
-      rows = 32;
-      large_display = true;
-      break;
-    default:
-      return usage(argv[0]);
-    }
-  }
-
-  if (rows != 8 && rows != 16 && rows != 32) {
-    fprintf(stderr, "Rows can one of 8, 16 or 32 "
-            "for 1:4, 1:8 and 1:16 multiplexing respectively.\n");
-    return 1;
-  }
-
-  if (chain < 1) {
-    fprintf(stderr, "Chain outside usable range\n");
-    return usage(argv[0]);
-  }
-  if (chain > 8) {
-    fprintf(stderr, "That is a long chain. Expect some flicker.\n");
-  }
-  if (parallel < 1 || parallel > 3) {
-    fprintf(stderr, "Parallel outside usable range.\n");
-    return usage(argv[0]);
-  }
-
-  if (brightness < 1 || brightness > 100) {
-    fprintf(stderr, "Brightness is outside usable range.\n");
-    return usage(argv[0]);
-  }
-
-  if (optind >= argc) {
-    fprintf(stderr, "Expected image filename.\n");
-    return usage(argv[0]);
-  }
-
-  const char *filename = argv[optind];
+  const char *filename = "../gifs/idle.gif";
 
   /*
    * Set up GPIO pins. This fails when not running as root.
    */
   GPIO io;
-  if (!io.Init())
-    return 1;
-
-  // Start daemon before we start any threads.
-  if (as_daemon) {
-    if (fork() != 0)
-      return 0;
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-  }
-
+  io.Init();
+  assert(io.Init());
   RGBMatrix *const matrix = new RGBMatrix(&io, rows, chain, parallel);
-  if (pwm_bits >= 0 && !matrix->SetPWMBits(pwm_bits)) {
-    fprintf(stderr, "Invalid range of pwm-bits\n");
-    return 1;
-  }
-
   matrix->SetBrightness(brightness);
-
-  // Here is an example where to add your own transformer. In this case, we
-  // just to the chain-of-four-32x32 => 64x64 transformer, but just use any
-  // of the transformers in transformer.h or write your own.
-  if (large_display) {
-    // Mapping the coordinates of a 32x128 display mapped to a square of 64x64
-    matrix->SetTransformer(new rgb_matrix::LargeSquare64x64Transformer());
-  }
-
+  
   std::vector<Magick::Image> sequence_pics;
   if (!LoadAnimation(filename, matrix->width(), matrix->height(),
                      &sequence_pics)) {
-    return 0;
+    return;
   }
 
   std::vector<PreprocessedFrame*> frames;
   PrepareBuffers(sequence_pics, matrix, &frames);
-
   DisplayAnimation(frames, matrix, play_once);
-
-  fprintf(stderr, "Caught signal. Exiting.\n");
-
-  // Animation finished. Shut down the RGB matrix.
+  
   matrix->Clear();
   delete matrix;
-
-  return 0;
 }
+
+/*void Method(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  args.GetReturnValue().Set(String::NewFromUtf8(isolate, "world"));
+}*/
+
+void init(Local<Object> exports) {
+  NODE_SET_METHOD(exports, "start", Main);
+}
+
+NODE_MODULE(addon, init);
