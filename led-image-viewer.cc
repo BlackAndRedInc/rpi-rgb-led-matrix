@@ -157,6 +157,7 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
                              RGBMatrix *matrix, bool play_once) {
   fprintf(stderr, "Display.\n");
+  FrameCanvas *blankCanvas = matrix->CreateFrameCanvas();
   for (unsigned int i = 0; !interrupt_received; ++i) {
     if(showAnimation) {
       const PreprocessedFrame *frame = frames[i % frames.size()];
@@ -166,6 +167,8 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
       } else {
         usleep(frame->delay_micros());
       }
+    } else {
+      matrix->SwapOnVSync(blankCanvas);
     }
   }
 }
@@ -237,7 +240,7 @@ static void PlayGifComplete(uv_work_t *req, int status) {
 static void StopGif(uv_work_t *req) {
   fprintf(stderr, "StopGif\n");
   Work *work = static_cast<Work *>(req->data);
-  showAnimation = true;
+  showAnimation = false;
 }
 
 static void StopGifComplete(uv_work_t *req, int status) {
