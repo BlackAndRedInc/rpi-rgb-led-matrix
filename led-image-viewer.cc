@@ -167,8 +167,6 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
       } else {
         usleep(frame->delay_micros());
       }
-    } else {
-      matrix->SwapOnVSync(blankCanvas);
     }
   }
 }
