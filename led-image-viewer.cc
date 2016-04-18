@@ -29,9 +29,25 @@
 #include <unistd.h>
 #include <node.h>
 
+#include <nan.h>
+
 #include <vector>
 #include <Magick++.h>
 #include <magick/image.h>
+
+//start
+#include <node.h>
+#include <v8.h>
+#include <uv.h>
+#include <string>
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
+using namespace v8;
+//end
 
 using v8::FunctionCallbackInfo;
 using v8::Isolate;
@@ -49,6 +65,8 @@ volatile bool interrupt_received = false;
 static void InterruptHandler(int signo) {
   interrupt_received = true;
 }
+
+bool showAnimation = false;
 
 namespace {
 // Preprocess as much as possible, so that we can just exchange full frames
@@ -138,30 +156,37 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
 
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
                              RGBMatrix *matrix, bool play_once) {
-  signal(SIGTERM, InterruptHandler);
-  signal(SIGINT, InterruptHandler);
   fprintf(stderr, "Display.\n");
   for (unsigned int i = 0; !interrupt_received; ++i) {
-    const PreprocessedFrame *frame = frames[i % frames.size()];
-    matrix->SwapOnVSync(frame->canvas());
-    if (frames.size() == 1 || (play_once == true && i == frames.size() - 1)) {
-      sleep(86400);  // Only one image. Nothing to do.
-    } else {
-      usleep(frame->delay_micros());
+    if(showAnimation) {
+      const PreprocessedFrame *frame = frames[i % frames.size()];
+      matrix->SwapOnVSync(frame->canvas());
+      if (frames.size() == 1 || (play_once == true && i == frames.size() - 1)) {
+        sleep(86400);  // Only one image. Nothing to do.
+      } else {
+        usleep(frame->delay_micros());
+      }
     }
   }
 }
 
-void Main(const FunctionCallbackInfo<Value>& args) {
+struct Work {
+  uv_work_t  request;
+  std::string filename;
+  Persistent<Function> callback;
+};
+
+RGBMatrix * matrix;
+bool play_once = false;
+std::vector<PreprocessedFrame*> frames;
+
+static void MainAsync(uv_work_t *req) {
+  /*v8::String::Utf8Value nameFromArgs(args[0]->ToString());
+  std::string name = std::string(*nameFromArgs);*/
+  Work *work = static_cast<Work *>(req->data);
+  const char *filename = work->filename.c_str();
+  
   Magick::InitializeMagick("");
-
-  int rows = 32;
-  int chain = 4;
-  int parallel = 1;
-  int brightness = 90;
-  bool play_once = false;
-
-  const char *filename = "../gifs/idle.gif";
 
   /*
    * Set up GPIO pins. This fails when not running as root.
@@ -169,8 +194,8 @@ void Main(const FunctionCallbackInfo<Value>& args) {
   GPIO io;
   io.Init();
   assert(io.Init());
-  RGBMatrix *const matrix = new RGBMatrix(&io, rows, chain, parallel);
-  matrix->SetBrightness(brightness);
+  matrix = new RGBMatrix(&io, 32, 4, 1);
+  matrix->SetBrightness(90);
   
   std::vector<Magick::Image> sequence_pics;
   if (!LoadAnimation(filename, matrix->width(), matrix->height(),
@@ -178,21 +203,132 @@ void Main(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  std::vector<PreprocessedFrame*> frames;
   PrepareBuffers(sequence_pics, matrix, &frames);
-  DisplayAnimation(frames, matrix, play_once);
   
-  matrix->Clear();
-  delete matrix;
+  DisplayAnimation(frames, matrix, play_once);
 }
 
-/*void Method(const FunctionCallbackInfo<Value>& args) {
-  Isolate* isolate = args.GetIsolate();
-  args.GetReturnValue().Set(String::NewFromUtf8(isolate, "world"));
-}*/
+static void PlayGif(uv_work_t *req) {
+  fprintf(stderr, "PlayGif\n");
+  Work *work = static_cast<Work *>(req->data);
+  showAnimation = true;
+}
 
-void init(Local<Object> exports) {
-  NODE_SET_METHOD(exports, "start", Main);
+static void PlayGifComplete(uv_work_t *req, int status) {
+  fprintf(stderr, "PlayGifComplete\n");
+  Isolate * isolate = Isolate::GetCurrent();
+
+  // Fix for Node 4.x - thanks to https://github.com/nwjs/blink/commit/ecda32d117aca108c44f38c8eb2cb2d0810dfdeb
+  v8::HandleScope handleScope(isolate);
+  Work *work = static_cast<Work *>(req->data);
+  
+  // set up return arguments
+  const unsigned argc = 1;
+  Local<Value> argv[argc] = { String::NewFromUtf8(isolate, "PLAYING GIF NOW") };
+  
+  // execute the callback
+  Local<Function>::New(isolate, work->callback)->Call(isolate->GetCurrentContext()->Global(), argc, argv);
+  
+  // Free up the persistent function callback
+  work->callback.Reset();
+  delete work;
+}
+
+static void StopGif(uv_work_t *req) {
+  fprintf(stderr, "StopGif\n");
+  Work *work = static_cast<Work *>(req->data);
+  showAnimation = true;
+}
+
+static void StopGifComplete(uv_work_t *req, int status) {
+  fprintf(stderr, "StopGifComplete\n");
+  Isolate * isolate = Isolate::GetCurrent();
+
+  // Fix for Node 4.x - thanks to https://github.com/nwjs/blink/commit/ecda32d117aca108c44f38c8eb2cb2d0810dfdeb
+  v8::HandleScope handleScope(isolate);
+  Work *work = static_cast<Work *>(req->data);
+  
+  // set up return arguments
+  const unsigned argc = 1;
+  Local<Value> argv[argc] = { String::NewFromUtf8(isolate, "STOPPING GIF NOW") };
+  
+  // execute the callback
+  Local<Function>::New(isolate, work->callback)->Call(isolate->GetCurrentContext()->Global(), argc, argv);
+  
+  // Free up the persistent function callback
+  work->callback.Reset();
+  delete work;
+}
+
+// called by libuv in event loop when async function completes
+static void MainAsyncComplete(uv_work_t *req, int status) {
+    fprintf(stderr, "MainAsyncComplete\n");
+    Isolate * isolate = Isolate::GetCurrent();
+
+    // Fix for Node 4.x - thanks to https://github.com/nwjs/blink/commit/ecda32d117aca108c44f38c8eb2cb2d0810dfdeb
+    v8::HandleScope handleScope(isolate);
+    Work *work = static_cast<Work *>(req->data);
+    
+    // set up return arguments
+    const unsigned argc = 1;
+    Local<Value> argv[argc] = { String::NewFromUtf8(isolate, "FINSIHED LOADING FRAMES") };
+    
+    // execute the callback
+    Local<Function>::New(isolate, work->callback)->Call(isolate->GetCurrentContext()->Global(), argc, argv);
+    
+    // Free up the persistent function callback
+    work->callback.Reset();
+    delete work;
+}
+
+void CallAsyncMain(const v8::FunctionCallbackInfo<v8::Value>&args) {
+    Isolate* isolate = args.GetIsolate();
+    
+    Work * work = new Work();
+    work->request.data = work;
+    
+    //set the filename
+    v8::String::Utf8Value nameFromArgs(args[0]->ToString());
+    work->filename = std::string(*nameFromArgs);
+    
+    Local<Function> callback = Local<Function>::Cast(args[1]);
+    work->callback.Reset(isolate, callback);
+    
+    uv_queue_work(uv_default_loop(),&work->request,MainAsync,MainAsyncComplete);
+    fprintf(stderr, "CallAsyncMain\n");
+    args.GetReturnValue().Set(Undefined(isolate));
+}
+
+void CallAsyncPlayGif(const v8::FunctionCallbackInfo<v8::Value>&args) {
+    Isolate* isolate = args.GetIsolate();
+    
+    Work * work = new Work();
+    work->request.data = work;
+    
+    Local<Function> callback = Local<Function>::Cast(args[0]);
+    work->callback.Reset(isolate, callback);
+    
+    uv_queue_work(uv_default_loop(),&work->request,PlayGif,PlayGifComplete);
+    args.GetReturnValue().Set(Undefined(isolate));
+}
+
+void CallAsyncStopGif(const v8::FunctionCallbackInfo<v8::Value>&args) {
+    Isolate* isolate = args.GetIsolate();
+    
+    Work * work = new Work();
+    work->request.data = work;
+    
+    Local<Function> callback = Local<Function>::Cast(args[0]);
+    work->callback.Reset(isolate, callback);
+    
+    uv_queue_work(uv_default_loop(),&work->request,StopGif,StopGifComplete);
+    args.GetReturnValue().Set(Undefined(isolate));
+}
+
+void init(Handle <Object> exports, Handle<Object> module) {
+  NODE_SET_METHOD(exports, "start", CallAsyncMain);
+  NODE_SET_METHOD(exports, "playGif", CallAsyncPlayGif);
+  NODE_SET_METHOD(exports, "stopGif", CallAsyncStopGif);
 }
 
 NODE_MODULE(addon, init);
