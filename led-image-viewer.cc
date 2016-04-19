@@ -157,7 +157,6 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
                              RGBMatrix *matrix, bool play_once) {
   fprintf(stderr, "Display.\n");
-  FrameCanvas *blankCanvas = matrix->CreateFrameCanvas();
   for (unsigned int i = 0; !interrupt_received; ++i) {
     if(showAnimation) {
       const PreprocessedFrame *frame = frames[i % frames.size()];
@@ -167,6 +166,9 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
       } else {
         usleep(frame->delay_micros());
       }
+    } else {
+      i = 0;
+      matrix->Fill(0, 0, 0);
     }
   }
 }
