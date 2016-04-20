@@ -29,8 +29,6 @@
 #include <unistd.h>
 #include <node.h>
 
-#include <nan.h>
-
 #include <vector>
 #include <Magick++.h>
 #include <magick/image.h>
