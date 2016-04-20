@@ -61,11 +61,6 @@ using rgb_matrix::FrameCanvas;
 using rgb_matrix::RGBMatrix;
 using rgb_matrix::CanvasTransformer;
 
-volatile bool interrupt_received = false;
-static void InterruptHandler(int signo) {
-  interrupt_received = true;
-}
-
 volatile bool showAnimation = false;
 unsigned int frame_start = 1;
 unsigned int frame_end = 120;
@@ -177,24 +172,19 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
       if (readStartFrame) {
         offset = 0;
         readStartFrame = false;
-        fprintf(stderr, "readStartFrame is true, resetting offset.\n");
       }
       
       //loop conditional
       if (offset >= (frame_end - frame_start) && loop) { 
         offset = 0;
-        fprintf(stderr, "LOOP offset has reached end, resetting offset.\n");
       }
       
       //play once conditional
       if(offset >= (frame_end - frame_start) && !loop ){
         showAnimation = false;
-        fprintf(stderr, "DO NOT LOOP, end of gif reached.\n");
       }
       
-      
       currentFrame = frame_start + offset;
-      fprintf(stderr, "%d", currentFrame);
       if (currentFrame < frames.size()){
         const PreprocessedFrame* frame = frames[currentFrame];
         matrix->SwapOnVSync(frame->canvas());
@@ -203,18 +193,6 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
       ++offset;
     }
   }
-  
-  /*for (unsigned int i = 0; !interrupt_received; ++i) {
-    if(showAnimation) {
-      const PreprocessedFrame *frame = frames[i % frames.size()];
-      matrix->SwapOnVSync(frame->canvas());
-      if (frames.size() == 1 || (loop == true && i == frames.size() - 1)) {
-        sleep(86400);  // Only one image. Nothing to do.
-      } else {
-        usleep(frame->delay_micros());
-      }
-    }
-  }*/
 }
 
 RGBMatrix * matrix;
