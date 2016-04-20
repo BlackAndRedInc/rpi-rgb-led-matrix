@@ -61,12 +61,12 @@ using rgb_matrix::FrameCanvas;
 using rgb_matrix::RGBMatrix;
 using rgb_matrix::CanvasTransformer;
 
-volatile bool interrupt_received = false;
-static void InterruptHandler(int signo) {
-  interrupt_received = true;
-}
+volatile bool showAnimation = false;
+unsigned int frame_start = 1;
+unsigned int frame_end = 120;
+bool loop = true;
+bool readStartFrame = false;
 
-bool showAnimation = false;
 
 namespace {
 // Preprocess as much as possible, so that we can just exchange full frames
@@ -154,33 +154,48 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
   }
 }
 
-static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
-                             RGBMatrix *matrix, bool play_once) {
-  fprintf(stderr, "Display.\n");
-  for (unsigned int i = 0; !interrupt_received; ++i) {
-    if(showAnimation) {
-      const PreprocessedFrame *frame = frames[i % frames.size()];
-      matrix->SwapOnVSync(frame->canvas());
-      if (frames.size() == 1 || (play_once == true && i == frames.size() - 1)) {
-        sleep(86400);  // Only one image. Nothing to do.
-      } else {
-        usleep(frame->delay_micros());
-      }
-    } else {
-      i = 0;
-      matrix->Fill(0, 0, 0);
-    }
-  }
-}
-
 struct Work {
   uv_work_t  request;
   std::string filename;
   Persistent<Function> callback;
 };
 
+static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
+                             RGBMatrix *matrix, bool loop) {
+  fprintf(stderr, "Display.\n");
+  unsigned int offset = 0;
+  unsigned int currentFrame;
+  //Loop to keep the thread alive
+  while(true) {
+    if(showAnimation) {
+      //restart from given frame conditional
+      if (readStartFrame) {
+        offset = 0;
+        readStartFrame = false;
+      }
+      
+      //loop conditional
+      if (offset >= (frame_end - frame_start) && loop) { 
+        offset = 0;
+      }
+      
+      //play once conditional
+      if(offset >= (frame_end - frame_start) && !loop ){
+        showAnimation = false;
+      }
+      
+      currentFrame = frame_start + offset;
+      if (currentFrame < frames.size()){
+        const PreprocessedFrame* frame = frames[currentFrame];
+        matrix->SwapOnVSync(frame->canvas());
+        usleep(frame->delay_micros());
+      }
+      ++offset;
+    }
+  }
+}
+
 RGBMatrix * matrix;
-bool play_once = false;
 std::vector<PreprocessedFrame*> frames;
 
 static void MainAsync(uv_work_t *req) {
@@ -208,12 +223,11 @@ static void MainAsync(uv_work_t *req) {
 
   PrepareBuffers(sequence_pics, matrix, &frames);
   
-  DisplayAnimation(frames, matrix, play_once);
+  DisplayAnimation(frames, matrix, loop);
 }
 
 static void PlayGif(uv_work_t *req) {
   fprintf(stderr, "PlayGif\n");
-  Work *work = static_cast<Work *>(req->data);
   showAnimation = true;
 }
 
@@ -228,32 +242,6 @@ static void PlayGifComplete(uv_work_t *req, int status) {
   // set up return arguments
   const unsigned argc = 1;
   Local<Value> argv[argc] = { String::NewFromUtf8(isolate, "PLAYING GIF NOW") };
-  
-  // execute the callback
-  Local<Function>::New(isolate, work->callback)->Call(isolate->GetCurrentContext()->Global(), argc, argv);
-  
-  // Free up the persistent function callback
-  work->callback.Reset();
-  delete work;
-}
-
-static void StopGif(uv_work_t *req) {
-  fprintf(stderr, "StopGif\n");
-  Work *work = static_cast<Work *>(req->data);
-  showAnimation = false;
-}
-
-static void StopGifComplete(uv_work_t *req, int status) {
-  fprintf(stderr, "StopGifComplete\n");
-  Isolate * isolate = Isolate::GetCurrent();
-
-  // Fix for Node 4.x - thanks to https://github.com/nwjs/blink/commit/ecda32d117aca108c44f38c8eb2cb2d0810dfdeb
-  v8::HandleScope handleScope(isolate);
-  Work *work = static_cast<Work *>(req->data);
-  
-  // set up return arguments
-  const unsigned argc = 1;
-  Local<Value> argv[argc] = { String::NewFromUtf8(isolate, "STOPPING GIF NOW") };
   
   // execute the callback
   Local<Function>::New(isolate, work->callback)->Call(isolate->GetCurrentContext()->Global(), argc, argv);
@@ -308,30 +296,21 @@ void CallAsyncPlayGif(const v8::FunctionCallbackInfo<v8::Value>&args) {
     Work * work = new Work();
     work->request.data = work;
     
-    Local<Function> callback = Local<Function>::Cast(args[0]);
+    Local<Function> callback = Local<Function>::Cast(args[3]);
     work->callback.Reset(isolate, callback);
+    
+    //wrap these in thread guard!!
+    frame_start = args[0]->IntegerValue();
+    frame_end = args[1]->IntegerValue();
+    loop = args[2]->BooleanValue();
+    readStartFrame = true;
     
     uv_queue_work(uv_default_loop(),&work->request,PlayGif,PlayGifComplete);
     args.GetReturnValue().Set(Undefined(isolate));
 }
-
-void CallAsyncStopGif(const v8::FunctionCallbackInfo<v8::Value>&args) {
-    Isolate* isolate = args.GetIsolate();
-    
-    Work * work = new Work();
-    work->request.data = work;
-    
-    Local<Function> callback = Local<Function>::Cast(args[0]);
-    work->callback.Reset(isolate, callback);
-    
-    uv_queue_work(uv_default_loop(),&work->request,StopGif,StopGifComplete);
-    args.GetReturnValue().Set(Undefined(isolate));
-}
-
 void init(Handle <Object> exports, Handle<Object> module) {
   NODE_SET_METHOD(exports, "start", CallAsyncMain);
   NODE_SET_METHOD(exports, "playGif", CallAsyncPlayGif);
-  NODE_SET_METHOD(exports, "stopGif", CallAsyncStopGif);
 }
 
 NODE_MODULE(addon, init);
