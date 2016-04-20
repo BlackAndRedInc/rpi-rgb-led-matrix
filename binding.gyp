@@ -22,8 +22,7 @@
                 "ADAFRUIT_RGBMATRIX_HAT"
             ],
             "include_dirs": [
-                "./include/", 
-                "<!(node -e \"require('nan')\")"
+                "./include/"
             ],
             "link_settings": {
                 "libraries": [ "<!(GraphicsMagick++-config --libs)" ]

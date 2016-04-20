@@ -609,9 +609,9 @@ Node-Gyp Installation & building
 ----------
 Install `node-gyp` globally.
 ```
-$ npm install node-gyp
+$ npm install -g node-gyp
 ```
 Once Installed run the `node-gyp` compiler in the root of the project.
 ```
-$ node-gyp configure build
+$ node-gyp clean && node-gyp configure build
 ```
