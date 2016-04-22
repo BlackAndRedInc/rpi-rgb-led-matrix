@@ -60,10 +60,10 @@ using rgb_matrix::RGBMatrix;
 using rgb_matrix::CanvasTransformer;
 
 volatile bool showAnimation = false;
-unsigned int frame_start = 1;
-unsigned int frame_end = 120;
-bool loop = true;
-bool readStartFrame = false;
+volatile unsigned int frame_start = 1;
+volatile unsigned int frame_end = 120;
+volatile bool loop = true;
+volatile bool readStartFrame = false;
 
 
 namespace {
@@ -159,7 +159,7 @@ struct Work {
 };
 
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
-                             RGBMatrix *matrix, bool loop) {
+                             RGBMatrix *matrix) {
   fprintf(stderr, "Display.\n");
   unsigned int offset = 0;
   unsigned int currentFrame;
@@ -221,7 +221,7 @@ static void MainAsync(uv_work_t *req) {
 
   PrepareBuffers(sequence_pics, matrix, &frames);
   
-  DisplayAnimation(frames, matrix, loop);
+  DisplayAnimation(frames, matrix);
 }
 
 static void PlayGif(uv_work_t *req) {

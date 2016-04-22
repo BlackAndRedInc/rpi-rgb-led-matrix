@@ -607,6 +607,8 @@ things, like this installation by Dirk in Scharbeutz, Germany:
 
 Node-Gyp Installation & building
 ----------
+NOTE: Install node v4.2.1 or later
+
 Install `node-gyp` globally.
 ```
 $ npm install -g node-gyp
