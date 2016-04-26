@@ -60,8 +60,8 @@ using rgb_matrix::RGBMatrix;
 using rgb_matrix::CanvasTransformer;
 
 volatile bool showAnimation = false;
-volatile unsigned int frame_start = 1;
-volatile unsigned int frame_end = 119;
+volatile unsigned int frame_start = 0;
+volatile unsigned int frame_end = 472;
 volatile bool loop = true;
 volatile bool readStartFrame = false;
 
